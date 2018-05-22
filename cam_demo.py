@@ -15,7 +15,7 @@ import pickle as pkl
 from PIL import Image
 import matplotlib.animation as animation
 
-#revised by wynmew; work with pytorch 3.6 + OpenCV 3.4
+#revised by wynmew; work with python3.6 + OpenCV3.4
 
 def get_test_input(input_dim, CUDA):
     img = cv2.imread("imgs/messi.jpg")
