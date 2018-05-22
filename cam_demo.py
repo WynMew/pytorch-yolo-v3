@@ -12,6 +12,10 @@ import pandas as pd
 import random 
 import argparse
 import pickle as pkl
+from PIL import Image
+import matplotlib.animation as animation
+
+#revised by wynmew; work with pytorch 3.6 + OpenCV 3.4
 
 def get_test_input(input_dim, CUDA):
     img = cv2.imread("imgs/messi.jpg")
@@ -69,100 +73,91 @@ def arg_parse():
     return parser.parse_args()
 
 
+cfgfile = "cfg/yolov3.cfg"
+weightsfile = "yolov3.weights"
+num_classes = 80
+classes = load_classes('data/coco.names')
+colors = pkl.load(open("pallete", "rb"))
 
-if __name__ == '__main__':
-    cfgfile = "cfg/yolov3.cfg"
-    weightsfile = "yolov3.weights"
-    num_classes = 80
+args = arg_parse()
+confidence = float(args.confidence)
+nms_thesh = float(args.nms_thresh)
+start = 0
+CUDA = torch.cuda.is_available()
 
-    args = arg_parse()
-    confidence = float(args.confidence)
-    nms_thesh = float(args.nms_thresh)
-    start = 0
-    CUDA = torch.cuda.is_available()
-    
+num_classes = 80
+bbox_attrs = 5 + num_classes
 
-    
-    
-    num_classes = 80
-    bbox_attrs = 5 + num_classes
-    
-    model = Darknet(cfgfile)
-    model.load_weights(weightsfile)
-    
-    model.net_info["height"] = args.reso
-    inp_dim = int(model.net_info["height"])
-    
-    assert inp_dim % 32 == 0 
-    assert inp_dim > 32
+model = Darknet(cfgfile)
+model.load_weights(weightsfile)
+
+model.net_info["height"] = args.reso
+inp_dim = int(model.net_info["height"])
+
+assert inp_dim % 32 == 0
+assert inp_dim > 32
+
+if CUDA:
+    model.cuda()
+
+model.eval()
+
+
+vc = cv2.VideoCapture(1)
+vc.set(3,256)
+vc.set(4,256)
+while(1):
+    if vc.isOpened():
+        rval, frame =vc.read()
+        break
+    else:
+        rval = False
+
+print('camera ready')
+frame = cv2.resize(frame,(256,256))
+image = Image.fromarray(frame)
+b, g, r = image.split()
+image = Image.merge('RGB',(r,g,b))
+
+fig = plt.figure()
+ax = fig.add_subplot(111)
+im = ax.imshow(image)
+'''
+videoname = 'PoseOut.mp4'
+fourcc = cv2.VideoWriter_fourcc(*'XVID')
+outvideo = cv2.VideoWriter(videoname, fourcc, 20, (1280, 256))
+'''
+def updatefig(*args):
+    rval, frame = vc.read()
+    frame = Image.fromarray(frame)
+    b, g, r = frame.split()
+    frame = Image.merge('RGB', (r, g, b))
+    frame = np.array(frame)
+
+    img, orig_im, dim = prep_image(frame, inp_dim)
+
+    im_dim = torch.FloatTensor(dim).repeat(1, 2)
 
     if CUDA:
-        model.cuda()
-            
-    model.eval()
-    
-    videofile = 'video.avi'
-    
-    cap = cv2.VideoCapture(0)
-    
-    assert cap.isOpened(), 'Cannot capture source'
-    
-    frames = 0
-    start = time.time()    
-    while cap.isOpened():
-        
-        ret, frame = cap.read()
-        if ret:
-            
-            img, orig_im, dim = prep_image(frame, inp_dim)
-            
-#            im_dim = torch.FloatTensor(dim).repeat(1,2)                        
-            
-            
-            if CUDA:
-                im_dim = im_dim.cuda()
-                img = img.cuda()
-            
-            
-            output = model(Variable(img), CUDA)
-            output = write_results(output, confidence, num_classes, nms = True, nms_conf = nms_thesh)
+        im_dim = im_dim.cuda()
+        img = img.cuda()
 
-            if type(output) == int:
-                frames += 1
-                print("FPS of the video is {:5.2f}".format( frames / (time.time() - start)))
-                cv2.imshow("frame", orig_im)
-                key = cv2.waitKey(1)
-                if key & 0xFF == ord('q'):
-                    break
-                continue
-            
+    output = model(Variable(img), CUDA)
+    output = write_results(output, confidence, num_classes, nms=True, nms_conf=nms_thesh)
+    output[:, 1:5] = torch.clamp(output[:, 1:5], 0.0, float(inp_dim)) / inp_dim
 
-        
-            output[:,1:5] = torch.clamp(output[:,1:5], 0.0, float(inp_dim))/inp_dim
-            
-#            im_dim = im_dim.repeat(output.size(0), 1)
-            output[:,[1,3]] *= frame.shape[1]
-            output[:,[2,4]] *= frame.shape[0]
+    #            im_dim = im_dim.repeat(output.size(0), 1)
+    output[:, [1, 3]] *= frame.shape[1]
+    output[:, [2, 4]] *= frame.shape[0]
 
-            
-            classes = load_classes('data/coco.names')
-            colors = pkl.load(open("pallete", "rb"))
-            
-            list(map(lambda x: write(x, orig_im), output))
-            
-            
-            cv2.imshow("frame", orig_im)
-            key = cv2.waitKey(1)
-            if key & 0xFF == ord('q'):
-                break
-            frames += 1
-            print("FPS of the video is {:5.2f}".format( frames / (time.time() - start)))
 
-            
-        else:
-            break
-    
+    list(map(lambda x: write(x, orig_im), output))
+    ax.clear()
+    ax.imshow(orig_im)
+#    oframe = np.array(image)
+#    oframe = oframe[:, :, ::-1].copy()
+#    outvideo.write(oframe)
+    return ax
 
-    
-    
-
+ani = animation.FuncAnimation(fig, updatefig, interval=1)
+plt.show()
