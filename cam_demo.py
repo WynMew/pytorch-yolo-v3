@@ -144,15 +144,16 @@ def updatefig(*args):
 
     output = model(Variable(img), CUDA)
     output = write_results(output, confidence, num_classes, nms=True, nms_conf=nms_thesh)
-    output[:, 1:5] = torch.clamp(output[:, 1:5], 0.0, float(inp_dim)) / inp_dim
+    if output.cpu().numpy() !=0:
+        output[:, 1:5] = torch.clamp(output[:, 1:5], 0.0, float(inp_dim)) / inp_dim
 
     #            im_dim = im_dim.repeat(output.size(0), 1)
-    output[:, [1, 3]] *= frame.shape[1]
-    output[:, [2, 4]] *= frame.shape[0]
+        output[:, [1, 3]] *= frame.shape[1]
+        output[:, [2, 4]] *= frame.shape[0]
 
 
-    list(map(lambda x: write(x, orig_im), output))
-    ax.clear()
+        list(map(lambda x: write(x, orig_im), output))
+        ax.clear()
     ax.imshow(orig_im)
 #    oframe = np.array(image)
 #    oframe = oframe[:, :, ::-1].copy()
